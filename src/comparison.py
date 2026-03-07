@@ -1,3 +1,7 @@
+# -*- coding: utf-8 -*-
+"""
+Функции для сравнения поз: аффинное преобразование, метрики.
+"""
 import numpy as np
 
 def pad(x):
@@ -8,26 +12,13 @@ def unpad(x):
     """Удаляет последний столбец."""
     return x[:, :-1]
 
-def align_affine(src_pts, dst_pts):
-    """
-    Аффинное преобразование src -> dst.
-    src_pts, dst_pts: массивы (N,2)
-    Возвращает преобразованные src_pts (N,2).
-    """
-    X = pad(src_pts)   # (N,3)
-    Y = pad(dst_pts)   # (N,3)
-    A, _, _, _ = np.linalg.lstsq(X, Y, rcond=None)
-    A[np.abs(A) < 1e-10] = 0
-    transformed = unpad(np.dot(pad(src_pts), A))
-    return transformed
-
 def get_transform(src_pts, dst_pts):
     """
     Возвращает матрицу аффинного преобразования (3x3) такую, что
     pad(src_pts) @ A ≈ pad(dst_pts).
     """
-    X = pad(src_pts)
-    Y = pad(dst_pts)
+    X = pad(src_pts)   # (N,3)
+    Y = pad(dst_pts)   # (N,3)
     A, _, _, _ = np.linalg.lstsq(X, Y, rcond=None)
     A[np.abs(A) < 1e-10] = 0
     return A
@@ -49,8 +40,7 @@ def cosine_distance(pose1, pose2):
     norm2 = np.linalg.norm(v2)
     if norm1 == 0 or norm2 == 0:
         return 0.0
-    cos_sim = np.dot(v1, v2) / (norm1 * norm2)
-    return cos_sim
+    return np.dot(v1, v2) / (norm1 * norm2)
 
 def weighted_distance(pose1, pose2, conf1):
     """

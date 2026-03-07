@@ -1,15 +1,19 @@
+# -*- coding: utf-8 -*-
+"""
+Утилиты для работы с ключевыми точками и отрисовки скелета.
+"""
 import cv2
 import numpy as np
 import torch
 import torchvision.transforms as T
 from PIL import Image
 
-# Список ключевых точек COCO
+# Список названий ключевых точек COCO (индексы 0..16)
 KEYPOINT_NAMES = [
-    'nose', 'left_eye', 'right_eye', 'left_ear', 'right_ear',
-    'left_shoulder', 'right_shoulder', 'left_elbow', 'right_elbow',
-    'left_wrist', 'right_wrist', 'left_hip', 'right_hip',
-    'left_knee', 'right_knee', 'left_ankle', 'right_ankle'
+    'нос', 'левый глаз', 'правый глаз', 'левое ухо', 'правое ухо',
+    'левое плечо', 'правое плечо', 'левый локоть', 'правый локоть',
+    'левое запястье', 'правое запястье', 'левое бедро', 'правое бедро',
+    'левое колено', 'правое колено', 'левая лодыжка', 'правая лодыжка'
 ]
 
 # Соединения для скелета (индексы из KEYPOINT_NAMES)
@@ -21,10 +25,11 @@ LIMBS = [
 ]
 
 def load_model(device='cuda'):
-    """Загружает предобученную модель Keypoint R-CNN и переводит в режим eval."""
+    """
+    Загружает предобученную модель Keypoint R-CNN и переводит в режим eval.
+    """
     import torchvision
-    #model = torchvision.models.detection.keypointrcnn_resnet50_fpn(pretrained=True)
-    model = torch.load('keypoint.pth', weights_only=False)
+    model = torchvision.models.detection.keypointrcnn_resnet50_fpn(pretrained=True)
     model.eval()
     return model.to(device)
 
@@ -35,7 +40,6 @@ def get_keypoints_from_pil(img_pil, model, device, conf_threshold=0.9):
     pts: (17,2) координаты
     scores: (17,) достоверности ключевых точек
     conf: уверенность детекции человека
-    Если никто не найден, возвращает (None, None, None).
     """
     transform = T.Compose([T.ToTensor()])
     img_tensor = transform(img_pil).unsqueeze(0).to(device)
@@ -46,9 +50,11 @@ def get_keypoints_from_pil(img_pil, model, device, conf_threshold=0.9):
     keypoints_all = output['keypoints'].cpu().numpy()          # [N, 17, 3]
     keypoints_scores = output['keypoints_scores'].cpu().numpy()  # [N, 17]
 
+    # Отбираем детекции с уверенностью выше порога
     valid_idx = np.where(boxes_scores > conf_threshold)[0]
     if len(valid_idx) == 0:
         return None, None, None
+    # Берём самую уверенную
     best_idx = valid_idx[np.argmax(boxes_scores[valid_idx])]
     pts = keypoints_all[best_idx, :, :2]      # (17,2)
     scores = keypoints_scores[best_idx]       # (17,)

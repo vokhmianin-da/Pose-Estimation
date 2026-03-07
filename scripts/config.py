@@ -1,5 +1,5 @@
 # Параметры по умолчанию
-DEVICE = 'cpu'                     # 'cuda' или 'cpu'
+DEVICE = 'cuda'                     # 'cuda' или 'cpu'
 CONF_THRESHOLD = 0.9                # порог уверенности детекции человека
 FRAME_STEP = 10                     # обрабатывать каждый 10-й кадр
 KEYPOINT_THRESHOLD = 0.5            # порог для отрисовки ключевых точек
