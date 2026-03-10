@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 """
 Основной скрипт для сравнения двух видео.
-Поддерживает отображение скелета коуча (флаг --skelet), русский текст, сохранение графиков.
 """
 import argparse
 import cv2
@@ -66,7 +65,6 @@ def put_text_ru(img, text, position, font_size=30, color=(255,255,255), font_pat
     # Пытаемся загрузить шрифт
     try:
         if font_path is None:
-            # Для Windows часто доступен Arial
             font = ImageFont.truetype("arial.ttf", font_size)
         else:
             font = ImageFont.truetype(font_path, font_size)
@@ -81,7 +79,7 @@ def put_text_ru(img, text, position, font_size=30, color=(255,255,255), font_pat
 
 def get_grade(mean_cos, mean_wdist, russian=False):
     """
-    Возвращает текстовую оценку на основе средних метрик.
+    Текстовая оценка на основе средних метрик.
     """
     if mean_cos > 0.98 and mean_wdist < 20:
         return "Отлично" if russian else "Excellent"
@@ -253,7 +251,7 @@ def main():
             else:
                 frame_with_skels = frame.copy()
 
-            # Добавляем текст с метриками (всегда)
+            # Добавляем текст с метриками
             cv2.putText(frame_with_skels, f'Cos: {data["cos"]:.3f}', (10,30),
                         cv2.FONT_HERSHEY_SIMPLEX, 1, (0,255,0), 2)
             cv2.putText(frame_with_skels, f'WDist: {data["wdist"]:.2f}', (10,70),
