@@ -12,7 +12,7 @@ import java.io.File
 class ResultActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityResultBinding
-    private var videoPath: String = ""
+    private var videoPath: String? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -22,7 +22,7 @@ class ResultActivity : AppCompatActivity() {
         val meanCos = intent.getDoubleExtra("MEAN_COS", 0.0)
         val meanWdist = intent.getDoubleExtra("MEAN_WDIST", 0.0)
         val grade = intent.getStringExtra("GRADE") ?: ""
-        videoPath = intent.getStringExtra("OUTPUT_VIDEO") ?: ""
+        videoPath = intent.getStringExtra("OUTPUT_VIDEO")
 
         binding.tvMeanCos.text = "Среднее косинусное сходство: %.4f".format(meanCos)
         binding.tvMeanWdist.text = "Среднее взвешенное расстояние: %.2f".format(meanWdist)
@@ -35,10 +35,16 @@ class ResultActivity : AppCompatActivity() {
         binding.btnShare.setOnClickListener {
             shareVideo()
         }
+
+        if (videoPath == null || !File(videoPath!!).exists()) {
+            binding.btnPlayVideo.isEnabled = false
+            binding.btnShare.isEnabled = false
+            binding.btnPlayVideo.text = "Видео не сохранено"
+        }
     }
 
     private fun playVideo() {
-        val file = File(videoPath)
+        val file = File(videoPath ?: return)
         if (!file.exists()) {
             Toast.makeText(this, "Видео не найдено", Toast.LENGTH_SHORT).show()
             return
@@ -52,7 +58,7 @@ class ResultActivity : AppCompatActivity() {
     }
 
     private fun shareVideo() {
-        val file = File(videoPath)
+        val file = File(videoPath ?: return)
         if (!file.exists()) {
             Toast.makeText(this, "Видео не найдено", Toast.LENGTH_SHORT).show()
             return

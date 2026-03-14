@@ -23,39 +23,13 @@ class ProcessingActivity : AppCompatActivity() {
     private lateinit var userUri: Uri
     private var showSkeleton: Boolean = false
 
-    // Локальный data class для хранения данных кадра
-    data class FrameData(
-        val refPoints: Array<PointF>,
-        val cos: Double,
-        val wdist: Double
-    ) {
-        override fun equals(other: Any?): Boolean {
-            if (this === other) return true
-            if (javaClass != other?.javaClass) return false
-
-            other as FrameData
-
-            if (!refPoints.contentEquals(other.refPoints)) return false
-            if (cos != other.cos) return false
-            if (wdist != other.wdist) return false
-
-            return true
-        }
-
-        override fun hashCode(): Int {
-            var result = refPoints.contentHashCode()
-            result = 31 * result + cos.hashCode()
-            result = 31 * result + wdist.hashCode()
-            return result
-        }
-    }
 
     data class ComparisonResult(
         val meanCos: Double,
         val meanWdist: Double,
         val grade: String,
-        val frameDataMap: Map<Int, FrameData>,
-        var outputVideoPath: String = ""
+        val frameDataMap: Map<Int, VideoExporter.FrameData>? = null,
+        var outputVideoPath: String? = null
     )
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -72,55 +46,72 @@ class ProcessingActivity : AppCompatActivity() {
         }
     }
 
-    private suspend fun processVideos() = withContext(Dispatchers.Main) {
-        updateProgress(0, "Извлечение ключевых точек из эталонного видео...")
+    private suspend fun processVideos() = withContext(Dispatchers.IO) {
         val processor = VideoProcessor(this@ProcessingActivity)
 
-        // Извлекаем позы из референсного видео (используем first() для получения одного списка)
-        val refPosesFlow = processor.extractPoses(refUri, frameStep = 10) { percent ->
-            runOnUiThread { binding.progressBar.progress = percent / 2 }
+        withContext(Dispatchers.Main) {
+            updateProgress(0, "Извлечение ключевых точек из эталонного видео...")
         }
-        val refPoses = refPosesFlow.first()
 
-        updateProgress(50, "Извлечение ключевых точек из вашего видео...")
-        val userPosesFlow = processor.extractPoses(userUri, frameStep = 10) { percent ->
-            runOnUiThread { binding.progressBar.progress = 50 + percent / 2 }
+        val refPoses = processor.extractPoses(refUri, frameStep = 10) { percent ->
+            runOnUiThread { binding.progressBar.progress = percent / 2 }
+        }.first()
+
+        withContext(Dispatchers.Main) {
+            updateProgress(50, "Извлечение ключевых точек из вашего видео...")
         }
-        val userPoses = userPosesFlow.first()
+
+        val userPoses = processor.extractPoses(userUri, frameStep = 10) { percent ->
+            runOnUiThread { binding.progressBar.progress = 50 + percent / 2 }
+        }.first()
 
         if (refPoses.isEmpty() || userPoses.isEmpty()) {
-            Toast.makeText(this@ProcessingActivity, "Не удалось обнаружить человека в одном из видео", Toast.LENGTH_LONG).show()
-            finish()
+            withContext(Dispatchers.Main) {
+                Toast.makeText(this@ProcessingActivity, "Не удалось обнаружить человека в одном из видео", Toast.LENGTH_LONG).show()
+                finish()
+            }
             return@withContext
         }
 
-        updateProgress(100, "Сравнение...")
+        withContext(Dispatchers.Main) {
+            updateProgress(100, "Сравнение и создание видео...")
+        }
 
-        // Синхронизация и вычисление метрик
         val result = comparePoses(refPoses, userPoses)
 
-        // Переход к результату (без экспорта видео пока)
-        val intent = Intent(this@ProcessingActivity, ResultActivity::class.java).apply {
-            putExtra("MEAN_COS", result.meanCos)
-            putExtra("MEAN_WDIST", result.meanWdist)
-            putExtra("GRADE", result.grade)
-            // Видео не передаём, в ResultActivity покажем только метрики
+        var videoPath: String? = null
+        if (result.frameDataMap != null) {
+            try {
+                videoPath = exportResultVideo(result)
+            } catch (e: Exception) {
+                e.printStackTrace()
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(this@ProcessingActivity, "Ошибка создания видео: ${e.message}", Toast.LENGTH_LONG).show()
+                }
+            }
         }
-        startActivity(intent)
-        finish()
+
+        val finalVideoPath = videoPath
+        withContext(Dispatchers.Main) {
+            val intent = Intent(this@ProcessingActivity, ResultActivity::class.java).apply {
+                putExtra("MEAN_COS", result.meanCos)
+                putExtra("MEAN_WDIST", result.meanWdist)
+                putExtra("GRADE", result.grade)
+                putExtra("OUTPUT_VIDEO", finalVideoPath)
+            }
+            startActivity(intent)
+            finish()
+        }
     }
 
     private suspend fun comparePoses(refPoses: List<PoseData>, userPoses: List<PoseData>): ComparisonResult {
-        // Извлекаем временные метки
         val refTimes = refPoses.map { it.timestamp }
         val userTimes = userPoses.map { it.timestamp }
 
-        // Общая временная шкала (используем FPS пользователя)
-        val fps = 30.0 // можно получить из видео, но для простоты предположим
+        val fps = 30.0
         val maxTime = minOf(refTimes.last(), userTimes.last())
         val commonTimestamps = (0..(maxTime * fps).toInt()).map { it / fps }
 
-        // Интерполяция
         val refPoints = refPoses.map { it.keypoints }
         val userPoints = userPoses.map { it.keypoints }
         val userConf = userPoses.map { it.confidences }
@@ -138,7 +129,6 @@ class ProcessingActivity : AppCompatActivity() {
             val user = userInterp[i]
             val conf = userConfInterp[i]
 
-            // Преобразование user -> ref для метрик
             val A = ComparisonEngine.getTransform(user.toList(), ref.toList())
             val userAligned = ComparisonEngine.applyTransform(user.toList(), A)
             val userFlat = ComparisonEngine.pointsToFlatArray(userAligned.toTypedArray())
@@ -146,7 +136,6 @@ class ProcessingActivity : AppCompatActivity() {
             cosScores.add(ComparisonEngine.cosineDistance(userFlat, refFlat))
             wDistScores.add(ComparisonEngine.weightedDistance(userFlat, refFlat, conf))
 
-            // Преобразование ref -> user для наложения скелета (пока не используется, но сохраняем)
             val B = ComparisonEngine.getTransform(ref.toList(), user.toList())
             transformsRefToUser.add(B)
         }
@@ -155,12 +144,12 @@ class ProcessingActivity : AppCompatActivity() {
         val meanWdist = wDistScores.average()
         val grade = getGrade(meanCos, meanWdist)
 
-        // Строим карту кадров пользователя (по индексам кадров) — пока не используется, но оставим
-        val frameDataMap = mutableMapOf<Int, FrameData>()
+        // Создаём map с VideoExporter.FrameData
+        val frameDataMap = mutableMapOf<Int, VideoExporter.FrameData>()
         for (i in commonTimestamps.indices) {
             val frameIdx = (commonTimestamps[i] * fps).toInt()
             val refOnUser = ComparisonEngine.applyTransform(refInterp[i].toList(), transformsRefToUser[i])
-            frameDataMap[frameIdx] = FrameData(
+            frameDataMap[frameIdx] = VideoExporter.FrameData(
                 refPoints = refOnUser.toTypedArray(),
                 cos = cosScores[i],
                 wdist = wDistScores[i]
@@ -173,6 +162,24 @@ class ProcessingActivity : AppCompatActivity() {
             grade = grade,
             frameDataMap = frameDataMap
         )
+    }
+
+    private suspend fun exportResultVideo(result: ComparisonResult): String {
+        val outputFile = File(cacheDir, "result_${System.currentTimeMillis()}.mp4")
+        val exporter = VideoExporter(this@ProcessingActivity)
+        exporter.exportVideo(
+            userVideoUri = userUri,
+            fps = 30.0,
+            frameDataMap = result.frameDataMap ?: emptyMap(), // теперь типы совпадают
+            outputPath = outputFile.absolutePath,
+            showSkeleton = showSkeleton
+        ) { current, total ->
+            runOnUiThread {
+                // Можно обновлять прогресс создания видео
+                binding.progressBar.progress = 100 // или использовать второй прогресс-бар
+            }
+        }
+        return outputFile.absolutePath
     }
 
     private fun getGrade(meanCos: Double, meanWdist: Double): String {

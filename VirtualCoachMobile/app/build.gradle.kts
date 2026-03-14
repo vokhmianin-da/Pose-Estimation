@@ -38,6 +38,7 @@ android {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
     }
+
 }
 
 dependencies {
@@ -56,8 +57,9 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-viewmodel-ktx:2.7.0")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.7.0")
 // PyTorch Mobile библиотеки
-    implementation("org.pytorch:pytorch_android:1.10.0")
-    implementation("org.pytorch:pytorch_android_torchvision:1.10.0")
+    //implementation("org.pytorch:pytorch_android:1.10.0")
+    //implementation("org.pytorch:pytorch_android_torchvision:1.10.0")
+    implementation("com.microsoft.onnxruntime:onnxruntime-android:latest.release")
 // Для работы с видео
     implementation("androidx.media3:media3-exoplayer:1.2.1")
     implementation("androidx.media3:media3-ui:1.2.1")

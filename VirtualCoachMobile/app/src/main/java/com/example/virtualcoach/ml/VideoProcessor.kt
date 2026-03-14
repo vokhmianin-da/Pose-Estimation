@@ -24,9 +24,10 @@ class VideoProcessor(private val context: Context) {
             retriever.setDataSource(context, videoUri)
             val durationMs = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLong() ?: 0
             val rotation = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION)?.toInt() ?: 0
-            // Используем фиксированную частоту кадров, так как METADATA_KEY_FRAMERATE может отсутствовать
             val fps = 30.0
             val totalFrames = (durationMs * fps / 1000).toInt()
+            val totalSteps = (totalFrames + frameStep - 1) / frameStep // сколько кадров обработаем
+            var processedSteps = 0
 
             val poses = mutableListOf<PoseData>()
             for (frameIndex in 0 until totalFrames step frameStep) {
@@ -40,7 +41,9 @@ class VideoProcessor(private val context: Context) {
                         poses.add(pose.copy(timestamp = timestamp))
                     }
                 }
-                onProgress((frameIndex * 100) / totalFrames)
+                processedSteps++
+                val percent = (processedSteps * 100) / totalSteps
+                onProgress(percent)
             }
             emit(poses)
         } finally {
