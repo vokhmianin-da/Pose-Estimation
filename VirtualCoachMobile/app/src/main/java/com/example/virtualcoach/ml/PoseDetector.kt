@@ -3,6 +3,7 @@ package com.example.virtualcoach.ml
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.PointF
+import android.util.Log
 import com.example.virtualcoach.data.PoseData
 import java.io.File
 import java.io.FileOutputStream
@@ -10,7 +11,9 @@ import java.io.IOException
 import java.nio.FloatBuffer
 import ai.onnxruntime.OnnxTensor
 import ai.onnxruntime.OrtEnvironment
+import ai.onnxruntime.OrtException
 import ai.onnxruntime.OrtSession
+import kotlin.math.abs
 
 class PoseDetector(private val context: Context) {
 
@@ -18,7 +21,22 @@ class PoseDetector(private val context: Context) {
     private var session: OrtSession? = null
 
     init {
-        session = env.createSession(assetFilePath(context, "keypoint_rcnn.onnx"))
+        try {
+            val modelPath = assetFilePath(context, "keypoint_rcnn.onnx")
+            session = env.createSession(modelPath)
+
+            val inputInfo = session?.inputInfo
+            val outputInfo = session?.outputInfo
+
+//            Log.d("PoseDetector", "=== Model Info ===")
+//            Log.d("PoseDetector", "Input names: ${inputInfo?.keys}")
+//            Log.d("PoseDetector", "Output names: ${outputInfo?.keys}")
+
+        } catch (e: OrtException) {
+            Log.e("PoseDetector", "ONNX Runtime error", e)
+        } catch (e: IOException) {
+            Log.e("PoseDetector", "Model file error", e)
+        }
     }
 
     private fun assetFilePath(context: Context, assetName: String): String {
@@ -46,10 +64,8 @@ class PoseDetector(private val context: Context) {
     fun detectPose(bitmap: Bitmap): PoseData? {
         val sess = session ?: return null
 
-        // Ресайз до 640x640
         val resizedBitmap = Bitmap.createScaledBitmap(bitmap, 640, 640, true)
 
-        // Преобразование в тензор (1,3,640,640) с нормализацией ImageNet
         val pixels = IntArray(640 * 640)
         resizedBitmap.getPixels(pixels, 0, 640, 0, 0, 640, 640)
 
@@ -71,17 +87,53 @@ class PoseDetector(private val context: Context) {
         val inputs = mapOf("input" to inputTensor)
         val results = sess.run(inputs)
 
-        // Извлекаем выходные тензоры
-        val scores = results.get("scores").get() as OnnxTensor
-        val keypoints = results.get("keypoints").get() as OnnxTensor
-        val keypointsScores = results.get("keypoints_scores").get() as OnnxTensor
+        val scoresTensor = results.get("scores")?.get() as? OnnxTensor
+        val keypointsTensor = results.get("keypoints")?.get() as? OnnxTensor
+        val keypointsScoresTensor = results.get("keypoints_scores")?.get() as? OnnxTensor
 
-        val scoresArray = scores.floatBuffer.array()
-        val keypointsArray = keypoints.floatBuffer.array()
-        val kpScoresArray = keypointsScores.floatBuffer.array()
+        if (scoresTensor == null) {
+            Log.e("PoseDetector", "scoresTensor is null")
+            return null
+        }
+        val scoresArray = scoresTensor.floatBuffer.array()
+        Log.d("PoseDetector", "scores size = ${scoresArray.size}")
+        if (scoresArray.isNotEmpty()) {
+//            Log.d("PoseDetector", "scores (first 10) = ${scoresArray.take(10).joinToString()}")
+//            Log.d("PoseDetector", "max score = ${scoresArray.maxOrNull()}")
+        } else {
+            Log.e("PoseDetector", "scoresArray is empty")
+            return null
+        }
 
-        val threshold = 0.9f
-        val bestIdx = scoresArray.indices.find { scoresArray[it] > threshold } ?: return null
+        val threshold = 0.1f // временно низкий порог
+        val bestIdx = scoresArray.indices.find { scoresArray[it] > threshold }
+        if (bestIdx == null) {
+            Log.w("PoseDetector", "No detection above threshold $threshold")
+            return null
+        }
+//        Log.d("PoseDetector", "bestIdx = $bestIdx, score = ${scoresArray[bestIdx]}")
+
+        if (keypointsTensor == null || keypointsScoresTensor == null) {
+            Log.e("PoseDetector", "keypointsTensor or keypointsScoresTensor is null")
+            return null
+        }
+        val keypointsArray = keypointsTensor.floatBuffer.array()
+        val kpScoresArray = keypointsScoresTensor.floatBuffer.array()
+//        Log.d("PoseDetector", "kpScoresArray size = ${kpScoresArray.size}")
+        if (kpScoresArray.isNotEmpty()) {
+            Log.d("PoseDetector", "First 5 kpScores: ${kpScoresArray.take(5).joinToString()}")
+        }
+
+        val expectedKpSize = scoresArray.size * 17 * 3
+        if (keypointsArray.size != expectedKpSize) {
+            Log.e("PoseDetector", "keypoints size mismatch: expected $expectedKpSize, got ${keypointsArray.size}")
+            return null
+        }
+        val expectedKpScoreSize = scoresArray.size * 17
+        if (kpScoresArray.size != expectedKpScoreSize) {
+            Log.e("PoseDetector", "kpScores size mismatch: expected $expectedKpScoreSize, got ${kpScoresArray.size}")
+            return null
+        }
 
         val kp = Array(17) { i ->
             val baseIdx = bestIdx * 17 * 3 + i * 3
@@ -96,6 +148,10 @@ class PoseDetector(private val context: Context) {
             kpScoresArray[bestIdx * 17 + i]
         }
 
-        return PoseData(kp, conf, 0.0)
+        val positiveConf = conf.map { abs(it) }.toFloatArray()
+
+//        Log.d("PoseDetector", "conf (first 5): ${conf.take(5).joinToString()}")
+
+        return PoseData(kp, positiveConf, 0.0)
     }
 }
