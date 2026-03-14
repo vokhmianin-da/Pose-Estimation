@@ -61,6 +61,7 @@ python scripts/main.py --ref data/ref.mp4 --user data/user.mp4 --output output/r
 MyProject/
 ├── README.md
 ├── requirements.txt
+├── VirtualCoachMobile. # каталог мобильного приложения в Android Studio
 ├── src/
 │   ├── pose_utils.py # утилиты для работы с ключевыми точками
 │   ├── comparison.py # функции сравнения поз
